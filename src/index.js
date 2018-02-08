@@ -6,7 +6,7 @@ import {
   Text,
   StyleSheet,
   AsyncStorage,
-  ListView,
+  FlatList,
 } from 'react-native';
 
 import { FormLabel, FormInput,Button } from 'react-native-elements'
@@ -21,65 +21,42 @@ init({
   sync : {
   }
 });
-options= {
-  host:'test.mosquitto.org',
-  port: 8080,
+const options = {
+  host: 'iot.eclipse.org',
+  port: 443,
   path: "/testTopic",
-  id:"id_"+parseInt(Math.random()*100000),
-  topic:"testTopic"
+  // path: "uname",
+  id: "id_" + parseInt(Math.random()*100000),
+  topic: "testTopic"
 }
-const ds = new ListView.DataSource({rowHasChanged: (r1, r2) => r1 !== r2});
 
-client = new Paho.MQTT.Client('iot.eclipse.org', 443, 'uname');
-// function onConnect(){
-//   console.log("onConnect");
-//   client.subscribe("testTopic",{qos: 0})
-//   var message = new Paho.MQTT.Message("I'm Android3");
-//   message.destinationName = "testTopic";
-//   client.send(message);
-// }
-// function onConnectionLost(responseObject){
-//   if (responseObject.errorCode !== 0) {
-//     console.log("onConnectionLost:"+responseObject.errorMessage);
-//   }
-// }
-// function onFailure(err){
-//   console.log("Connect failed!")
-//   console.log(err)
-// }
-// function onMessageArrived(message) {
-//   console.log("onMessageArrived:"+message.payloadString);
-// }
-// client.onConnectionLost = onConnectionLost;
-// client.onMessageArrived = onMessageArrived;
-// client.connect({onSuccess:onConnect,
-//                 timeout: 3,
-//                 onFailure:onFailure});
-// console.log(client.onMessageArrived)
-
-
-
+client = new Paho.MQTT.Client(options.host, options.port, options.path);
 
 export default class ChatMQTT extends Component {
   constructor(props){
     super(props)
     this.state={
-      message:"",
-      client:client,
-      listMessages:[],
-      dataSource:ds.cloneWithRows([])
+      message: "",
+      messageList: [],
+      status: 'isFetching',
     }
     client.onConnectionLost = this.onConnectionLost;
     client.onMessageArrived = this.onMessageArrived;
-    client.connect({onSuccess:this.onConnect,
-                    useSSL: true,
-                    timeout:3,
-                    onFailure:this.onFailure});
+    client.connect({
+      onSuccess:this.onConnect,
+      useSSL: true,
+      timeout:3,
+      onFailure:this.onFailure
+    });
   }
-  onConnect=()=>{
+  onConnect = () => {
     console.log("onConnect");
-    client.subscribe("testTopic",{qos: 0})
-    var message = new Paho.MQTT.Message("Welcom "+options.id);
+    this.setState({
+      status: 'connected',
+    })
+
+    client.subscribe('testTopic', { qos: 0 })
+    var message = new Paho.MQTT.Message("Welcome " + options.id);
     message.destinationName = options.topic;
     client.send(message);
   }
@@ -89,41 +66,50 @@ export default class ChatMQTT extends Component {
       console.log("onConnectionLost:"+responseObject.errorMessage);
     }
   }
-  onFailure(err){
+  onFailure = (err) => {
     console.log("Connect failed!")
     console.log(err)
+    this.setState({
+      status: 'failed',
+    })
   }
-  onMessageArrived=(message)=> {
+  onMessageArrived = (message )=> {
     console.log("onMessageArrived:"+message.payloadString);
-    newListMessages = this.state.listMessages
-    newListMessages.push(message.payloadString)
+    newmessageList = this.state.messageList
+    newmessageList.push(message.payloadString)
     this.setState({
-      listMessages:newListMessages,
-      dataSource:ds.cloneWithRows(newListMessages)
-    })
-    console.log("listMessages:",message)
-  }
-  onChangeMessage=(text)=>{
-    this.setState({
-      message:text
+      messageList: newmessageList,
     })
   }
-  sendMessage=()=>{
+  onChangeMessage = (text) => {
+    this.setState({
+      message: text
+    })
+  }
+  sendMessage = () =>{
     var message = new Paho.MQTT.Message(options.id+":"+this.state.message);
     message.destinationName = options.topic;
     client.send(message);
   }
-  _renderRow=(data)=>{
-    idMessage = data.split(":");
+  renderRow = ({ item, index }) => {
+    idMessage = item.split(":");
+    console.log('>>>ITEM', item)
     return(
-      <View style={idMessage[0]==options.id?styles.myMessageComponent:(idMessage.length==1?styles.introMessage:styles.messageComponent)}>
-        <Text style={idMessage.length==1?styles.textIntro:styles.textMessage}>
-          {data}
+      <View 
+        style={[
+          styles.componentMessage,
+          idMessage[0] == options.id ? styles.myMessageComponent : ( idMessage.length == 1 ? styles.introMessage : styles.messageComponent ),
+        ]}
+      >
+        <Text style={idMessage.length == 1 ? styles.textIntro : styles.textMessage}>
+          {item}
         </Text>
       </View>
     )
   }
+  _keyExtractor = (item, index) => item + index;
   render() {
+    const { status, messageList } = this.state;
     return (
       <View style={styles.container}>
         <FormLabel>Message</FormLabel>
@@ -132,14 +118,17 @@ export default class ChatMQTT extends Component {
           buttonStyle={{marginTop:16,}}
           icon={{name: 'send'}}
           title='SUMBMIT'
-          backgroundColor={'#397af8'}
+          backgroundColor={status === 'failed' ? 'red' : '#397af8'}
           onPress={this.sendMessage}
+          loading={status === 'isFetching' ? true : false}
+          disabled={status === 'isFetching' ? true : false}
           />
         <View style={styles.messageBox}>
-          <ListView
-            dataSource={this.state.dataSource}
-            renderRow={this._renderRow}
-            enableEmptySections
+          <FlatList
+            data={messageList}
+            renderItem={this.renderRow}
+            keyExtractor={this._keyExtractor}
+            extraData={this.state}
             />
         </View>
       </View>
@@ -155,6 +144,7 @@ const styles = StyleSheet.create({
   },
   messageBox:{
     margin:16,
+    flex: 1,
   },
   myMessageComponent:{
     backgroundColor:'#000000',
